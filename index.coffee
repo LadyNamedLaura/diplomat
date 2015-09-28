@@ -42,8 +42,10 @@ class Semaphore extends events.EventEmitter
     new Promise (resolve, reject) =>
       consul.kv.set opts, (err, res) =>
         @readLock()
+        console.log 'updated'
+        console.log res
         @lock.then (lock) =>
-          if err
+          if err or res == false
             reject err
           else
             resolve res
@@ -75,15 +77,16 @@ class Semaphore extends events.EventEmitter
           console.log 'b'
           return if not @acquireing
           keys = {}
-          for v in res
-            @modifyIndex = v.ModifyIndex if v.ModifyIndex > @modifyIndex
-            if v.Key is "#{@prefix}/lock/.lock"
-              lock = JSON.parse "#{v.Value}"
-              lock.ModifyIndex = v.ModifyIndex
-              lock.Limit ?= @limit
-            else if v.Key?
-              id = v.Key.substr "#{@prefix}/lock/".length
-              keys[id] = true
+          if res?
+            for v in res
+              @modifyIndex = v.ModifyIndex if v.ModifyIndex > @modifyIndex
+              if v.Key is "#{@prefix}/lock/.lock"
+                lock = JSON.parse "#{v.Value}"
+                lock.ModifyIndex = v.ModifyIndex
+                lock.Limit ?= @limit
+              else if v.Session?
+                keys[v.Session] = true
+          console.log keys
           lock.Holders ?= []
           lock.Holders = lock.Holders.filter (id) -> keys[id]?
           console.log lock
@@ -120,19 +123,23 @@ class Diplomat
       consul.kv.get getOpts, (err, res) =>
         mod = 0
         s = {}
-        for v in res
-          console.log v.Key
-          continue unless v.Key.startsWith "diplomat/services/"
-          mod = v.ModifyIndex if v.ModifyIndex > mod
-          name = v.Key.substr "diplomat/services/".length
-          console.log name
-          if @services[name]?
-            s[name] = @services[name]
-          else
-            s[name] = new Diplomat.Service name, v
+        if res? 
+          for v in res
+            console.log v.Key
+            continue unless v.Key.startsWith "diplomat/services/"
+            mod = v.ModifyIndex if v.ModifyIndex > mod
+            name = v.Key.substr "diplomat/services/".length
+            console.log name
+            if @services[name]?
+              s[name] = @services[name]
+            else
+              s[name] = new Diplomat.Service name, v
 
         @services = s
-        update mod 
+        if res?
+          update mod
+        else
+          setTimeout update, 5000
     update()
 
 host =
